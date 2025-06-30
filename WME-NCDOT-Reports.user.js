@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WME NCDOT Reports
 // @namespace    https://greasyfork.org/users/45389
-// @version      2025.04.28.02
+// @version      2025.06.29.01
 // @description  Display NC transportation department reports in WME.
 // @author       MapOMatic, The_Cre8r, and ABelter
 // @license      GNU GPLv3
@@ -427,11 +427,6 @@
                 let id = $(this).data('dotReportid');
                 copyToClipboard(report.attributes.incidentType.replace('Night Time','Nighttime').replace('Other',report.attributes.condition) + ' - DriveNC.gov ' + id);
             });
-            $('.btn-copy-helper-string').click(function(evt) {
-                evt.stopPropagation();
-                let id = $(this).data('dotReportid');
-                copyToClipboard(getReport(id).attributes.incidentType.replace('Night Time','Nighttime').replace('Other',report.attributes.condition) + ' - DriveNC.gov ' + id + '|' + formatDateTimeStringCH(report.attributes.start) + '|' + formatDateTimeStringCH(report.attributes.end));
-            });
             $('.btn-copy-report-url').click(function(evt) {
                 evt.stopPropagation();
                 let url = $(this).data('dotReporturl');
@@ -442,6 +437,13 @@
                 let status = $(this).data('dotStatus');
                 let id = $(this).data('dotReportid');
                 sendToSheet(id,status);
+            });
+            $('.btn-add-rtc').click(function(evt) {
+                evt.stopPropagation();
+                let id = $(this).data('dotReportid');
+                let rtcStart = report.attributes.start;
+                if (new Date(rtcStart) < new Date(Date.now())) { rtcStart = new Date(Date.now()); }
+                createRTC(getReport(id).attributes.incidentType.replace('Night Time','Nighttime').replace('Other',report.attributes.condition) + ' - DriveNC.gov ' + id,formatDateString(rtcStart),formatTimeString(rtcStart),formatDateString(report.attributes.end),formatTimeString(report.attributes.end))
             });
             //$(".close-popover").click(function() {hideAllReportPopovers();});
             $div.data('report').dataRow.css('background-color','#f1f1f1');
@@ -678,7 +680,7 @@
             if (_rank >= 3) {
                 content.push('<button type="button" title="Push to NC Closures Sheet as Closed" class="btn-dot btn-dot-secondary btn-push-to-sheet" data-dot-reportid="' + report.id + '" data-dot-status="Closed"><span class="" />Post to Sheet - Closed</button>');
             }
-            /*content.push('<button type="button" style="float:right;" title="Copy WME Closure Helper string to clipboard" class="btn-dot btn-dot-secondary btn-copy-helper-string" data-dot-reportid="' + report.id + '"><span class="fa fa-copy"></span> CH</button></div>')*/
+            content.push('<button type="button" title="Add RTC" class="btn-dot btn-dot-secondary btn-add-rtc" data-dot-reportid="' + report.id + '"><span class="fa fa-copy"></span> Add RTC to Selected Segment(s)</button></div>')
         }
         content.push('</div></div>');
 
@@ -799,32 +801,10 @@
             let allSeg = selFeat.every(e => e.model.type == 'segment'); // Check to ensure that all selected objects are segments
             if (allSeg) {
                 setTimeout(() => {
-                    $('.closures-tab').click();
+                    $('.segment-edit-section div.wz-tab-label:nth-of-type(2)').click();
                 }, 100);
             }
         }
-        //todo experiment
-        $("li.closure-item, .add-closure-button").click(function() {
-            var tObj = $('#closure_eventId');
-            // Make sure the closure event list is available, and that we haven't already messed with it.
-            if((tObj !== null) && (tObj.tag != "touchedByURO"))
-            {
-                var shadowElm = tObj.shadowRoot.querySelectorAll('.selected-value')[0];
-                if(shadowElm !== undefined)
-                {
-                    WazeWrap.Alerts.info(SCRIPT_NAME,'test');
-                    var eventText = tObj.shadowRoot.querySelectorAll('.selected-value')[0].innerText;
-
-                    if(eventText == I18n.lookup('closures.choose_event'))
-                    {
-
-                        tObj.children[0].click();
-                    }
-                    // Tag the event list to prevent further processing attempts whilst this closure remains open.
-                    tObj.tag = "touchedByURO";
-                }
-            }
-        });
     }
 
     function processReports(reports, showPopupWhenDone) {
@@ -853,6 +833,9 @@
                 let report = {};
                 report.id = reportDetails.id;
                 report.attributes = reportDetails;
+                if (report.attributes.condition == 'Permanent Road Closure') {
+                    report.attributes.incidentType = 'Permanent Road Closure';
+                }
                 if (conditionFilter.indexOf(report.attributes.condition) > -1 && report.attributes.createdFromConcurrent == false) {
 					if (report.attributes.road.substring(0,3) == 'SR-') {
 						report.attributes.roadFullName = report.attributes.commonName + (report.attributes.commonName !== report.attributes.road ? ' (' + report.attributes.road.trim() + ')' : '');
@@ -880,16 +863,51 @@
         logDebug('Added ' + _reportsClosures.length + ' reports to map.');
     }
 
+    function createRTC(reason,startDate,startTime,endDate,endTime) {
+        let permalink = document.querySelector(".WazeControlPermalink .permalink").href;
+        permalink = permalink.replace(/(&s=[0-9]{6,30}&)/,'&').replace('beta','www');
+
+        if (!permalink.includes('segments=')) {
+            WazeWrap.Alerts.error(SCRIPT_NAME,"No segments selected. Unable to add closure information");
+            return;
+        }
+        //document.querySelector('.segment-edit-section wz-tabs').shadowRoot.queryselector('div.wz-tab-label:nth-of-type(2)').click();
+        $(".add-closure-button").click();
+        setTimeout(() => {
+            $("#closure_reason").val(reason).change();
+            $("#closure_startDate").val(startDate).change().trigger('keyup');
+            $("#edit-panel div.closures div.form-group.start-date-form-group > div.date-time-picker > wz-text-input.time-picker-input").timepicker('setTime',startTime);
+            $("#closure_endDate").val(endDate).change().trigger('keyup');
+            $("#edit-panel div.closures div.form-group.end-date-form-group > div.date-time-picker > wz-text-input.time-picker-input").timepicker('setTime',endTime);
+            document.querySelector("#closure_eventId > wz-option:nth-child(1)").shadowRoot.querySelector("div").click();
+            document.querySelector(".closure-nodes").nextElementSibling.querySelector("wz-select").value = '12142192756';
+            document.querySelector(".closure-nodes").nextElementSibling.querySelector("wz-select").setAttribute('placeholder', 'N.C. Department of Transportation');
+        }, 100);
+    }
+
+    function changeDateField(element, newDate) {
+        const newDateObj = $(element).data('daterangepicker')
+        newDateObj.setStartDate(newDate)
+        $(element).trigger(
+            'keyup.daterangepicker',//keyup was apply
+            [newDateObj]
+        )
+    }
+
+    function changeTimeField($element, newtime) {
+         $element.timepicker('setTime',newtime);
+    }
+
     function fetchReports(showPopupWhenDone) {
         logDebug('Fetching reports...');
         $('.nc-dot-report-count').text('Loading reports...');
-        $('.nc-dot-refresh-reports').toggleClass("fa-spin");
+        $('.nc-dot-refresh-reports').addClass("fa-spin");
         GM_xmlhttpRequest({
             method: 'GET',
             url: REPORTS_URL,
             onload: function(res) {
                 processReports($.parseJSON(res.responseText), showPopupWhenDone);
-                $('.nc-dot-refresh-reports').toggleClass("fa-spin");
+                $('.nc-dot-refresh-reports').removeClass("fa-spin");
             }
         });
     }
